@@ -197,6 +197,7 @@ async function getXToken(authToken, ct0, walletAddress) {
      html.match(/"code"\s*:\s*"([^"]+)"/))?.[1];
 
   if (!authCode) {
+    fs.writeFileSync("debug_html.txt", html);
     err("OAUTH", `No auth_code. Status: ${getRes.status}, Snippet: ${html.slice(0, 500)}`);
     return null;
   }
