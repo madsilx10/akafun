@@ -154,44 +154,21 @@ async function getXToken(authToken, ct0, walletAddress) {
   const urlObj   = new URL(xAuthUrl);
   const state    = urlObj.searchParams.get("state");
 
-  // Step 2: GET authorize ke x.com dengan cookie yang bener
-  const getRes = await request({
-    hostname: "x.com",
-    path: `/i/oauth2/authorize?${urlObj.searchParams.toString()}`,
-    method: "GET",
-    headers: {
-      ...xHeaders(authToken, ct0),
-      accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "sec-fetch-dest": "document",
-      "sec-fetch-mode": "navigate",
-      "sec-fetch-site": "cross-site",
-      "sec-fetch-user": "?1",
-      "upgrade-insecure-requests": "1",
-      cookie: `auth_token=${authToken}; ct0=${ct0}; twid=u%3D${ct0}`,
-    },
-  });
-
-  info("OAUTH", `GET authorize: status=${getRes.status} body_len=${typeof getRes.body === "string" ? getRes.body.length : JSON.stringify(getRes.body).length}`);
-
-  const html = typeof getRes.body === "string" ? getRes.body : JSON.stringify(getRes.body);
-  const authCode =
-    (html.match(/"auth_code"\s*:\s*"([^"]+)"/) ||
-     html.match(/auth_code=([^&"'\s]+)/) ||
-     html.match(/name="code"\s+value="([^"]+)"/) ||
-     html.match(/"code"\s*:\s*"([^"]+)"/))?.[1];
-
-  if (!authCode) {
-    err("OAUTH", `No auth_code. Status: ${getRes.status}, Snippet: ${html.slice(0, 400)}`);
-    return null;
-  }
-
-  // Step 3: POST approve dengan auth_code
+  // Step 2: langsung POST approve ke api.x.com dengan semua oauth params
   const approveBody = new URLSearchParams({
     approval: "true",
-    code: authCode,
+    code: urlObj.searchParams.get("code_challenge"),
     consent_flow: "web_consent",
+    response_type: "code",
+    client_id: urlObj.searchParams.get("client_id"),
+    redirect_uri: urlObj.searchParams.get("redirect_uri"),
+    scope: urlObj.searchParams.get("scope"),
+    state: state,
+    code_challenge: urlObj.searchParams.get("code_challenge"),
+    code_challenge_method: "S256",
   }).toString();
 
+  info("OAUTH", `POST approve...`);
   const approveRes = await request({
     hostname: BASE_X_API,
     path: "/2/oauth2/authorize",
@@ -202,7 +179,7 @@ async function getXToken(authToken, ct0, walletAddress) {
     }),
   }, approveBody);
 
-  info("OAUTH", `POST approve: status=${approveRes.status} body=${JSON.stringify(approveRes.body).slice(0,200)}`);
+  info("OAUTH", `POST approve: status=${approveRes.status} body=${JSON.stringify(approveRes.body).slice(0,300)}`);
   const redirectUri = approveRes.body?.redirect_uri;
   if (!redirectUri) {
     err("OAUTH", `No redirect_uri. Body: ${JSON.stringify(approveRes.body)}`);
