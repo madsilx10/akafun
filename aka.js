@@ -155,6 +155,7 @@ async function getXToken(authToken, ct0, walletAddress) {
   const clientId = urlObj.searchParams.get("client_id");
 
   // Step 2: GET authorize page → dapat auth_code dari response JSON
+  // Step 2: GET authorize page → extract auth_code dari HTML
   const getRes = await request({
     hostname: "x.com",
     path: `/i/oauth2/authorize?${urlObj.searchParams.toString()}`,
@@ -167,10 +168,16 @@ async function getXToken(authToken, ct0, walletAddress) {
     }),
   });
 
-  // auth_code ada di JSON response dari GET authorize
-  const authCode = getRes.body?.auth_code || getRes.body?.code;
+  // auth_code ada di HTML — cari di berbagai pattern
+  const html = typeof getRes.body === "string" ? getRes.body : JSON.stringify(getRes.body);
+  const authCode =
+    (html.match(/"auth_code"\s*:\s*"([^"]+)"/) ||
+     html.match(/auth_code=([^&"'\s]+)/) ||
+     html.match(/name="code"\s+value="([^"]+)"/) ||
+     html.match(/"code"\s*:\s*"([^"]+)"/))?.[1];
+
   if (!authCode) {
-    err("OAUTH", `No auth_code. Body: ${JSON.stringify(getRes.body).slice(0, 200)}`);
+    err("OAUTH", `No auth_code. HTML snippet: ${html.slice(0, 300)}`);
     return null;
   }
 
