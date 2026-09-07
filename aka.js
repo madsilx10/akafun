@@ -144,7 +144,7 @@ async function getXToken(authToken, ct0, walletAddress) {
     },
   });
 
-  const xAuthUrl = startRes.headers?.location;
+  info("OAUTH", `Start status: ${startRes.status}, location: ${startRes.headers?.location || JSON.stringify(startRes.body).slice(0,100)}`);
   if (!xAuthUrl || !xAuthUrl.includes("oauth2/authorize")) {
     err("OAUTH", `No redirect. Body: ${JSON.stringify(startRes.body)}`);
     return null;
@@ -170,7 +170,7 @@ async function getXToken(authToken, ct0, walletAddress) {
 
   // auth_code ada di HTML — cari di berbagai pattern
   const html = typeof getRes.body === "string" ? getRes.body : JSON.stringify(getRes.body);
-  info("OAUTH", `GET authorize status: ${getRes.status}, location: ${getRes.headers?.location || "-"}`);
+  info("OAUTH", `GET authorize: status=${getRes.status} body_len=${JSON.stringify(getRes.body).length} location=${getRes.headers?.location || "-"}`);
   fs.writeFileSync("debug_html.txt", html.slice(0, 5000));
   const authCode =
     (html.match(/"auth_code"\s*:\s*"([^"]+)"/) ||
