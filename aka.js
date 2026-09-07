@@ -134,6 +134,7 @@ async function retweet(authToken, ct0) {
       "content-length": Buffer.byteLength(body),
     }),
   }, body);
+  info("RT", `status=${res.status} body=${JSON.stringify(res.body).slice(0,200)}`);
   return res.status === 200;
 }
 
