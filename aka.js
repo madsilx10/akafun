@@ -27,13 +27,23 @@ const warn = (t, m) => log(t, m, "\x1b[33m");
 function request(options, body = null) {
   return new Promise((resolve, reject) => {
     const req = https.request(options, (res) => {
-      let data = "";
-      res.on("data", (c) => (data += c));
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
       res.on("end", () => {
+        const buf = Buffer.concat(chunks);
+        const enc = res.headers["content-encoding"] || "";
+        const decompress = (b) => {
+          if (enc.includes("br")) return require("zlib").brotliDecompressSync(b);
+          if (enc.includes("gzip")) return require("zlib").gunzipSync(b);
+          if (enc.includes("deflate")) return require("zlib").inflateSync(b);
+          return b;
+        };
+        let text;
+        try { text = decompress(buf).toString("utf8"); } catch { text = buf.toString("utf8"); }
         try {
-          resolve({ status: res.statusCode, body: JSON.parse(data), headers: res.headers });
+          resolve({ status: res.statusCode, body: JSON.parse(text), headers: res.headers });
         } catch {
-          resolve({ status: res.statusCode, body: data, headers: res.headers });
+          resolve({ status: res.statusCode, body: text, headers: res.headers });
         }
       });
     });
