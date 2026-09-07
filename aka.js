@@ -242,7 +242,9 @@ async function getXToken(authToken, ct0, walletAddress) {
   }
 
   const locUrl = new URL(location.startsWith("http") ? location : `https://aka.fun${location}`);
-  const xToken = locUrl.searchParams.get("x");
+  // xToken bisa di hash fragment (#x=...) atau query param
+  const hashParams = new URLSearchParams(locUrl.hash.replace("#", ""));
+  const xToken = locUrl.searchParams.get("x") || hashParams.get("x");
   if (!xToken) {
     err("OAUTH", `No xToken in: ${location}`);
     return null;
