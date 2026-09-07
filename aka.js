@@ -134,15 +134,12 @@ async function retweet(authToken, ct0) {
       "content-length": Buffer.byteLength(body),
     }),
   }, body);
-  info("RT", `status=${res.status} body=${JSON.stringify(res.body).slice(0,200)}`);
   return res.status === 200;
 }
 
 // ── AKA.FUN OAUTH ────────────────────────────────────────────────────────────
 async function getXToken(authToken, ct0, walletAddress) {
-  info("OAUTH", `Starting for ${walletAddress.slice(0, 10)}...`);
-
-  // Step 1: hit start → dapat redirect ke twitter
+  // Step 1: start → redirect ke twitter
   const startRes = await request({
     hostname: BASE_AKA,
     path: `/api/whitelist/x/start/?wallet=${walletAddress}&origin=https%3A%2F%2Faka.fun`,
@@ -155,17 +152,16 @@ async function getXToken(authToken, ct0, walletAddress) {
     },
   });
 
-  info("OAUTH", `Start status: ${startRes.status}, location: ${startRes.headers?.location || JSON.stringify(startRes.body).slice(0,100)}`);
   const xAuthUrl = startRes.headers?.location;
   if (!xAuthUrl || !xAuthUrl.includes("oauth2/authorize")) {
-    err("OAUTH", `No redirect. Body: ${JSON.stringify(startRes.body)}`);
+    err("OAUTH", `No redirect`);
     return null;
   }
 
-  const urlObj   = new URL(xAuthUrl);
-  const state    = urlObj.searchParams.get("state");
+  const urlObj = new URL(xAuthUrl);
+  const state  = urlObj.searchParams.get("state");
 
-  // Step 2: GET authorize via Twitter internal API → return JSON dengan auth_code
+  // Step 2: GET authorize → dapat auth_code
   const getRes = await request({
     hostname: "x.com",
     path: `/i/api/2/oauth2/authorize?${urlObj.searchParams.toString()}`,
@@ -180,26 +176,19 @@ async function getXToken(authToken, ct0, walletAddress) {
     },
   });
 
-  info("OAUTH", `GET authorize API: status=${getRes.status} body=${JSON.stringify(getRes.body).slice(0,300)}`);
-
-  // auth_code ada di response JSON
   const authCode = getRes.body?.auth_code;
-
   if (!authCode) {
-    err("OAUTH", `No auth_code. Body: ${JSON.stringify(getRes.body).slice(0, 400)}`);
+    err("OAUTH", `No auth_code (status=${getRes.status})`);
     return null;
   }
 
-  info("OAUTH", `auth_code OK: ${authCode.slice(0, 20)}...`);
-
-  // Step 3: POST approve dengan auth_code
+  // Step 3: POST approve
   const approveBody = new URLSearchParams({
     approval: "true",
     code: authCode,
     consent_flow: "web_consent",
   }).toString();
 
-  info("OAUTH", `POST approve...`);
   const approveRes = await request({
     hostname: BASE_X_API,
     path: "/2/oauth2/authorize",
@@ -210,20 +199,19 @@ async function getXToken(authToken, ct0, walletAddress) {
     }),
   }, approveBody);
 
-  info("OAUTH", `POST approve: status=${approveRes.status} body=${JSON.stringify(approveRes.body).slice(0,300)}`);
   const redirectUri = approveRes.body?.redirect_uri;
   if (!redirectUri) {
-    err("OAUTH", `No redirect_uri. Body: ${JSON.stringify(approveRes.body)}`);
+    err("OAUTH", `No redirect_uri (status=${approveRes.status})`);
     return null;
   }
 
   const oauthCode = new URL(redirectUri).searchParams.get("code");
   if (!oauthCode) {
-    err("OAUTH", `No code in redirect_uri: ${redirectUri}`);
+    err("OAUTH", `No code in redirect_uri`);
     return null;
   }
 
-  // Step 4: callback → dapat xToken dari Location header
+  // Step 4: callback → xToken
   const cbRes = await request({
     hostname: BASE_AKA,
     path: `/api/whitelist/x/callback/?state=${encodeURIComponent(state)}&code=${encodeURIComponent(oauthCode)}`,
@@ -238,20 +226,19 @@ async function getXToken(authToken, ct0, walletAddress) {
 
   const location = cbRes.headers?.location;
   if (!location) {
-    err("OAUTH", `No location from callback. Body: ${JSON.stringify(cbRes.body)}`);
+    err("OAUTH", `No location from callback`);
     return null;
   }
 
-  const locUrl = new URL(location.startsWith("http") ? location : `https://aka.fun${location}`);
-  // xToken bisa di hash fragment (#x=...) atau query param
+  const locUrl     = new URL(location.startsWith("http") ? location : `https://aka.fun${location}`);
   const hashParams = new URLSearchParams(locUrl.hash.replace("#", ""));
-  const xToken = locUrl.searchParams.get("x") || hashParams.get("x");
+  const xToken     = locUrl.searchParams.get("x") || hashParams.get("x");
   if (!xToken) {
-    err("OAUTH", `No xToken in: ${location}`);
+    err("OAUTH", `No xToken`);
     return null;
   }
 
-  ok("OAUTH", `xToken OK`);
+  ok("OAUTH", `Connected`);
   return xToken;
 }
 
@@ -386,7 +373,11 @@ async function main() {
   for (const idx of targets) {
     console.log(`\x1b[90m${"─".repeat(50)}\x1b[0m`);
     results.push(await processAccount(accounts[idx], wallets[idx], idx));
-    if (targets.length > 1) await sleep(3000);
+    if (targets.length > 1 && idx !== targets[targets.length - 1]) {
+      const cd = Math.floor(Math.random() * 51 + 10); // 10–60 detik
+      info("CD", `Delay ${cd}s sebelum akun berikutnya...`);
+      await sleep(cd * 1000);
+    }
   }
 
   console.log(`\n\x1b[35m${"═".repeat(50)}\x1b[0m SUMMARY`);
