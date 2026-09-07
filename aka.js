@@ -3,30 +3,24 @@ const https = require("https");
 const readline = require("readline");
 const { Wallet } = require("ethers");
 
-// ── CONFIG ──────────────────────────────────────────────────────────────────
-const REF_CODE = "EV3MWC2M";
-const TARGET_FOLLOW = "akadotfun";
-const TARGET_RT_URL =
-  "https://x.com/akadotfun/status/2095565826321526791?s=20";
-const TWEET_ID = "2095565826321526791";
-
-const BASE_AKA = "testnet.aka.fun";
-const BASE_X_API = "api.x.com";
-
+// ── CONFIG ───────────────────────────────────────────────────────────────────
+const REF_CODE    = "EV3MWC2M";
+const FOLLOW_USER = "akadotfun";
+const TWEET_ID    = "2095565826321526791";
+const BASE_AKA    = "testnet.aka.fun";
+const BASE_X_API  = "api.x.com";
 const ACCOUNTS_FILE = "akun.txt";
-const WALLETS_FILE = "wallet.txt";
+const WALLETS_FILE  = "wallet.txt";
 
 // ── UTILS ────────────────────────────────────────────────────────────────────
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function log(tag, msg, color = "\x1b[0m") {
   const ts = new Date().toISOString().slice(11, 19);
   console.log(`\x1b[90m[${ts}]\x1b[0m ${color}[${tag}]\x1b[0m ${msg}`);
 }
-const ok = (t, m) => log(t, m, "\x1b[32m");
-const err = (t, m) => log(t, m, "\x1b[31m");
+const ok   = (t, m) => log(t, m, "\x1b[32m");
+const err  = (t, m) => log(t, m, "\x1b[31m");
 const info = (t, m) => log(t, m, "\x1b[36m");
 const warn = (t, m) => log(t, m, "\x1b[33m");
 
@@ -49,126 +43,95 @@ function request(options, body = null) {
   });
 }
 
-// ── PARSE INPUT FILES ────────────────────────────────────────────────────────
+// ── PARSE FILES ──────────────────────────────────────────────────────────────
 function parseAccounts() {
-  const lines = fs
-    .readFileSync(ACCOUNTS_FILE, "utf8")
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-
+  const lines = fs.readFileSync(ACCOUNTS_FILE, "utf8")
+    .split("\n").map((l) => l.trim()).filter(Boolean);
   const accounts = [];
-  for (let i = 0; i + 1 < lines.length; i += 2) {
+  for (let i = 0; i + 1 < lines.length; i += 2)
     accounts.push({ authToken: lines[i], ct0: lines[i + 1] });
-  }
   return accounts;
 }
 
 function parseWallets() {
-  const lines = fs
-    .readFileSync(WALLETS_FILE, "utf8")
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  const wallets = [];
-  for (const privkey of lines) {
-    const pk = privkey.startsWith("0x") ? privkey : `0x${privkey}`;
-    const w = new Wallet(pk);
-    wallets.push({ privkey: pk, address: w.address });
-  }
-  return wallets;
+  const lines = fs.readFileSync(WALLETS_FILE, "utf8")
+    .split("\n").map((l) => l.trim()).filter(Boolean);
+  return lines.map((pk) => {
+    const key = pk.startsWith("0x") ? pk : `0x${pk}`;
+    return { privkey: key, address: new Wallet(key).address };
+  });
 }
 
-// ── TWITTER API ──────────────────────────────────────────────────────────────
-function xHeaders(authToken, ct0) {
+// ── TWITTER HEADERS ──────────────────────────────────────────────────────────
+function xHeaders(authToken, ct0, extra = {}) {
   return {
-    authorization:
-      "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+    authorization: "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
     cookie: `auth_token=${authToken}; ct0=${ct0}`,
     "x-csrf-token": ct0,
-    "content-type": "application/json",
-    "user-agent":
-      "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+    "user-agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
     "x-twitter-active-user": "yes",
     "x-twitter-client-language": "id",
     origin: "https://x.com",
     referer: "https://x.com/",
+    ...extra,
   };
 }
 
-async function checkFollowing(authToken, ct0, username) {
-  // get own user id first
-  const meRes = await request({
-    hostname: BASE_X_API,
-    path: "/2/users/me",
-    method: "GET",
-    headers: { ...xHeaders(authToken, ct0), "content-type": "application/json" },
-  });
-  if (!meRes.body?.data?.id) return { following: false, userId: null };
-  const userId = meRes.body.data.id;
-
+// ── TWITTER: FOLLOW ──────────────────────────────────────────────────────────
+async function checkFollowing(authToken, ct0) {
   const res = await request({
     hostname: BASE_X_API,
-    path: `/1.1/friendships/show.json?source_id=${userId}&target_screen_name=${username}`,
+    path: `/1.1/friendships/show.json?source_screen_name=me&target_screen_name=${FOLLOW_USER}`,
     method: "GET",
     headers: xHeaders(authToken, ct0),
   });
-  const following = res.body?.relationship?.source?.following === true;
-  return { following, userId };
+  return res.body?.relationship?.source?.following === true;
 }
 
-async function followUser(authToken, ct0, username) {
-  const body = JSON.stringify({ screen_name: username, skip_status: true });
-  const res = await request(
-    {
-      hostname: BASE_X_API,
-      path: "/1.1/friendships/create.json",
-      method: "POST",
-      headers: {
-        ...xHeaders(authToken, ct0),
-        "content-type": "application/x-www-form-urlencoded",
-        "content-length": Buffer.byteLength(`screen_name=${username}&skip_status=true`),
-      },
-    },
-    `screen_name=${username}&skip_status=true`
-  );
+async function followUser(authToken, ct0) {
+  const body = `screen_name=${FOLLOW_USER}&skip_status=true`;
+  const res = await request({
+    hostname: BASE_X_API,
+    path: "/1.1/friendships/create.json",
+    method: "POST",
+    headers: xHeaders(authToken, ct0, {
+      "content-type": "application/x-www-form-urlencoded",
+      "content-length": Buffer.byteLength(body),
+    }),
+  }, body);
   return res.status === 200;
 }
 
-async function checkRetweeted(authToken, ct0, tweetId) {
+// ── TWITTER: RETWEET ─────────────────────────────────────────────────────────
+async function checkRetweeted(authToken, ct0) {
   const res = await request({
     hostname: BASE_X_API,
-    path: `/1.1/statuses/show.json?id=${tweetId}&include_my_retweet=1`,
+    path: `/1.1/statuses/show.json?id=${TWEET_ID}&include_my_retweet=1`,
     method: "GET",
     headers: xHeaders(authToken, ct0),
   });
   return !!res.body?.current_user_retweet;
 }
 
-async function retweet(authToken, ct0, tweetId) {
-  const body = `id=${tweetId}`;
-  const res = await request(
-    {
-      hostname: BASE_X_API,
-      path: `/1.1/statuses/retweet/${tweetId}.json`,
-      method: "POST",
-      headers: {
-        ...xHeaders(authToken, ct0),
-        "content-type": "application/x-www-form-urlencoded",
-        "content-length": Buffer.byteLength(body),
-      },
-    },
-    body
-  );
+async function retweet(authToken, ct0) {
+  const body = `id=${TWEET_ID}`;
+  const res = await request({
+    hostname: BASE_X_API,
+    path: `/1.1/statuses/retweet/${TWEET_ID}.json`,
+    method: "POST",
+    headers: xHeaders(authToken, ct0, {
+      "content-type": "application/x-www-form-urlencoded",
+      "content-length": Buffer.byteLength(body),
+    }),
+  }, body);
   return res.status === 200;
 }
 
-// ── AKA.FUN OAUTH FLOW ───────────────────────────────────────────────────────
+// ── AKA.FUN OAUTH ────────────────────────────────────────────────────────────
 async function getXToken(authToken, ct0, walletAddress) {
-  info("OAUTH", `Starting X OAuth for ${walletAddress.slice(0, 10)}...`);
+  info("OAUTH", `Starting for ${walletAddress.slice(0, 10)}...`);
 
-  // Step 1: start
+  // Step 1: hit start → dapat redirect ke twitter
   const startRes = await request({
     hostname: BASE_AKA,
     path: `/api/whitelist/x/start/?wallet=${walletAddress}&origin=https%3A%2F%2Faka.fun`,
@@ -177,276 +140,240 @@ async function getXToken(authToken, ct0, walletAddress) {
       accept: "*/*",
       origin: "https://aka.fun",
       referer: "https://aka.fun/",
-      "user-agent":
-        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      "user-agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
     },
   });
 
-  // extract redirect location → x.com authorize URL
-  const xAuthUrl = startRes.headers?.location || startRes.body;
+  const xAuthUrl = startRes.headers?.location;
   if (!xAuthUrl || !xAuthUrl.includes("oauth2/authorize")) {
-    err("OAUTH", `No redirect URL. Response: ${JSON.stringify(startRes.body)}`);
+    err("OAUTH", `No redirect. Body: ${JSON.stringify(startRes.body)}`);
     return null;
   }
 
-  const urlObj = new URL(xAuthUrl);
-  const state = urlObj.searchParams.get("state");
-  const codeChallenge = urlObj.searchParams.get("code_challenge");
+  const urlObj   = new URL(xAuthUrl);
+  const state    = urlObj.searchParams.get("state");
   const clientId = urlObj.searchParams.get("client_id");
-  const redirectUri = urlObj.searchParams.get("redirect_uri");
 
-  // Step 2: Twitter authorize page (GET)
-  await request({
+  // Step 2: GET authorize page → dapat auth_code dari response JSON
+  const getRes = await request({
     hostname: "x.com",
     path: `/i/oauth2/authorize?${urlObj.searchParams.toString()}`,
     method: "GET",
-    headers: {
-      ...xHeaders(authToken, ct0),
-      accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    headers: xHeaders(authToken, ct0, {
+      accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "sec-fetch-dest": "document",
       "sec-fetch-mode": "navigate",
       "sec-fetch-site": "cross-site",
-    },
+    }),
   });
 
-  // Step 3: POST approve
-  const approveBody = new URLSearchParams({
-    approval: "true",
-    code: codeChallenge,
-    consent_flow: "web_consent",
-  }).toString();
-
-  const approveRes = await request(
-    {
-      hostname: BASE_X_API,
-      path: "/2/oauth2/authorize",
-      method: "POST",
-      headers: {
-        ...xHeaders(authToken, ct0),
-        "content-type": "application/x-www-form-urlencoded",
-        "content-length": Buffer.byteLength(approveBody),
-      },
-    },
-    approveBody
-  );
-
-  const code = approveRes.body?.redirect_uri
-    ? new URL(approveRes.body.redirect_uri).searchParams.get("code")
-    : null;
-
-  if (!code) {
-    // try direct redirect_uri field
-    err("OAUTH", `No code from approve. Body: ${JSON.stringify(approveRes.body)}`);
+  // auth_code ada di JSON response dari GET authorize
+  const authCode = getRes.body?.auth_code || getRes.body?.code;
+  if (!authCode) {
+    err("OAUTH", `No auth_code. Body: ${JSON.stringify(getRes.body).slice(0, 200)}`);
     return null;
   }
 
-  // Step 4: callback
-  const callbackRes = await request({
+  // Step 3: POST approve dengan auth_code
+  const approveBody = new URLSearchParams({
+    approval: "true",
+    code: authCode,
+    consent_flow: "web_consent",
+  }).toString();
+
+  const approveRes = await request({
+    hostname: BASE_X_API,
+    path: "/2/oauth2/authorize",
+    method: "POST",
+    headers: xHeaders(authToken, ct0, {
+      "content-type": "application/x-www-form-urlencoded",
+      "content-length": Buffer.byteLength(approveBody),
+    }),
+  }, approveBody);
+
+  const redirectUri = approveRes.body?.redirect_uri;
+  if (!redirectUri) {
+    err("OAUTH", `No redirect_uri. Body: ${JSON.stringify(approveRes.body)}`);
+    return null;
+  }
+
+  const oauthCode = new URL(redirectUri).searchParams.get("code");
+  if (!oauthCode) {
+    err("OAUTH", `No code in redirect_uri: ${redirectUri}`);
+    return null;
+  }
+
+  // Step 4: callback → dapat xToken dari Location header
+  const cbRes = await request({
     hostname: BASE_AKA,
-    path: `/api/whitelist/x/callback/?state=${encodeURIComponent(state)}&code=${encodeURIComponent(code)}`,
+    path: `/api/whitelist/x/callback/?state=${encodeURIComponent(state)}&code=${encodeURIComponent(oauthCode)}`,
     method: "GET",
     headers: {
       accept: "*/*",
       origin: "https://aka.fun",
       referer: "https://x.com/",
-      "user-agent":
-        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      "user-agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
     },
   });
 
-  // xToken is in Location header after 303
-  const location = callbackRes.headers?.location;
+  const location = cbRes.headers?.location;
   if (!location) {
-    err("OAUTH", `No location from callback. Body: ${JSON.stringify(callbackRes.body)}`);
+    err("OAUTH", `No location from callback. Body: ${JSON.stringify(cbRes.body)}`);
     return null;
   }
 
   const locUrl = new URL(location.startsWith("http") ? location : `https://aka.fun${location}`);
   const xToken = locUrl.searchParams.get("x");
   if (!xToken) {
-    err("OAUTH", `No xToken in location: ${location}`);
+    err("OAUTH", `No xToken in: ${location}`);
     return null;
   }
 
-  ok("OAUTH", `xToken obtained`);
+  ok("OAUTH", `xToken OK`);
   return xToken;
 }
 
-// ── CHECK WHITELIST STATUS ───────────────────────────────────────────────────
-async function checkWhitelist(walletAddress) {
+// ── AKA.FUN: CEK & SUBMIT ────────────────────────────────────────────────────
+async function checkWhitelist(addr) {
   const res = await request({
     hostname: BASE_AKA,
-    path: `/api/whitelist/?q=${walletAddress}`,
+    path: `/api/whitelist/?q=${addr}`,
     method: "GET",
     headers: {
       accept: "*/*",
       origin: "https://aka.fun",
       referer: "https://aka.fun/",
-      "user-agent":
-        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      "user-agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
     },
   });
   return res.body?.data;
 }
 
-// ── SUBMIT WHITELIST ─────────────────────────────────────────────────────────
-async function submitWhitelist(walletAddress, xToken) {
-  const payload = JSON.stringify({
-    wallet: walletAddress,
-    ref: REF_CODE,
-    xToken,
-  });
-
-  const res = await request(
-    {
-      hostname: BASE_AKA,
-      path: "/api/whitelist/",
-      method: "POST",
-      headers: {
-        accept: "*/*",
-        "content-type": "application/json",
-        "content-length": Buffer.byteLength(payload),
-        origin: "https://aka.fun",
-        referer: "https://aka.fun/",
-        "user-agent":
-          "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-      },
+async function submitWhitelist(addr, xToken) {
+  const payload = JSON.stringify({ wallet: addr, ref: REF_CODE, xToken });
+  const res = await request({
+    hostname: BASE_AKA,
+    path: "/api/whitelist/",
+    method: "POST",
+    headers: {
+      accept: "*/*",
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(payload),
+      origin: "https://aka.fun",
+      referer: "https://aka.fun/",
+      "user-agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
     },
-    payload
-  );
+  }, payload);
   return { status: res.status, data: res.body?.data };
 }
 
-// ── PROCESS ONE ACCOUNT ──────────────────────────────────────────────────────
+// ── PROCESS SATU AKUN ────────────────────────────────────────────────────────
 async function processAccount(account, wallet, idx) {
   const label = `ACC#${idx + 1}`;
-  const addr = wallet.address;
-
+  const addr  = wallet.address;
   info(label, `Wallet: ${addr}`);
 
   // 1. cek whitelist
-  const wlStatus = await checkWhitelist(addr);
-  if (wlStatus?.registered) {
-    warn(label, `Already registered as @${wlStatus.x}. Skip.`);
-    return { status: "already_registered", wallet: addr, x: wlStatus.x };
+  const wl = await checkWhitelist(addr);
+  if (wl?.registered) {
+    warn(label, `Already registered (@${wl.x}). Skip.`);
+    return { status: "already_registered", wallet: addr, x: wl.x };
   }
 
-  // 2. cek & follow
-  const { following } = await checkFollowing(account.authToken, account.ct0, TARGET_FOLLOW);
-  if (following) {
-    warn(label, `Already following @${TARGET_FOLLOW}`);
+  // 2. konek X → dapat xToken
+  const xToken = await getXToken(account.authToken, account.ct0, addr);
+  if (!xToken) {
+    err(label, `Failed xToken. Skip.`);
+    return { status: "failed_xtoken", wallet: addr };
+  }
+  await sleep(1500);
+
+  // 3. follow
+  const alreadyFollow = await checkFollowing(account.authToken, account.ct0);
+  if (alreadyFollow) {
+    warn(label, `Already following @${FOLLOW_USER}`);
   } else {
-    const followed = await followUser(account.authToken, account.ct0, TARGET_FOLLOW);
-    if (followed) ok(label, `Followed @${TARGET_FOLLOW}`);
-    else err(label, `Failed to follow @${TARGET_FOLLOW}`);
+    const followed = await followUser(account.authToken, account.ct0);
+    ok(label, followed ? `Followed @${FOLLOW_USER}` : `Follow failed`);
     await sleep(2000);
   }
 
-  // 3. cek & retweet
-  const alreadyRt = await checkRetweeted(account.authToken, account.ct0, TWEET_ID);
+  // 4. retweet
+  const alreadyRt = await checkRetweeted(account.authToken, account.ct0);
   if (alreadyRt) {
     warn(label, `Already retweeted`);
   } else {
-    const rted = await retweet(account.authToken, account.ct0, TWEET_ID);
-    if (rted) ok(label, `Retweeted`);
-    else err(label, `Failed to retweet`);
+    const rted = await retweet(account.authToken, account.ct0);
+    ok(label, rted ? `Retweeted` : `RT failed`);
     await sleep(2000);
-  }
-
-  // 4. OAuth → xToken
-  const xToken = await getXToken(account.authToken, account.ct0, addr);
-  if (!xToken) {
-    err(label, `Failed to get xToken. Skipping submit.`);
-    return { status: "failed_xtoken", wallet: addr };
   }
 
   // 5. submit whitelist
   const result = await submitWhitelist(addr, xToken);
   if (result.status === 201) {
-    ok(label, `✅ Whitelist submitted! X: @${result.data?.x}`);
+    ok(label, `✅ Done! X: @${result.data?.x}`);
     return { status: "success", wallet: addr, x: result.data?.x };
   } else {
-    err(label, `Submit failed. Status: ${result.status}`);
+    err(label, `Submit failed (${result.status}): ${JSON.stringify(result.data)}`);
     return { status: "failed_submit", wallet: addr };
   }
 }
 
 // ── MENU ─────────────────────────────────────────────────────────────────────
-async function prompt(question) {
+async function prompt(q) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((r) => rl.question(question, (a) => { rl.close(); r(a.trim()); }));
+  return new Promise((r) => rl.question(q, (a) => { rl.close(); r(a.trim()); }));
 }
 
 async function main() {
-  console.log("\x1b[35m");
-  console.log("╔══════════════════════════════════════╗");
+  console.log("\x1b[35m╔══════════════════════════════════════╗");
   console.log("║      AKA.FUN WHITELIST FARMER        ║");
   console.log("║      ref: EV3MWC2M                   ║");
-  console.log("╚══════════════════════════════════════╝");
-  console.log("\x1b[0m");
+  console.log("╚══════════════════════════════════════╝\x1b[0m\n");
 
   const accounts = parseAccounts();
-  const wallets = parseWallets();
+  const wallets  = parseWallets();
+  const total    = Math.min(accounts.length, wallets.length);
+  info("INIT", `${accounts.length} akun, ${wallets.length} wallet → ${total} pair`);
 
-  info("INIT", `Loaded ${accounts.length} accounts, ${wallets.length} wallets`);
-
-  if (accounts.length !== wallets.length) {
-    warn("INIT", `Account count (${accounts.length}) != wallet count (${wallets.length}). Will pair by index.`);
-  }
-
-  const total = Math.min(accounts.length, wallets.length);
-
-  console.log("\n\x1b[33mPilih mode:\x1b[0m");
-  console.log("  1. 1 akun (pilih index)");
-  console.log("  2. Semua akun");
-  console.log("  3. From X to end (mulai dari index tertentu)\n");
+  console.log("\n\x1b[33mMode:\x1b[0m");
+  console.log("  1. 1 akun");
+  console.log("  2. Semua");
+  console.log("  3. From X to end\n");
 
   const mode = await prompt("Pilihan (1/2/3): ");
-
   let targets = [];
 
   if (mode === "1") {
-    const idx = parseInt(await prompt(`Index akun (1-${total}): `)) - 1;
-    if (isNaN(idx) || idx < 0 || idx >= total) {
-      err("MAIN", "Index invalid"); process.exit(1);
-    }
+    const idx = parseInt(await prompt(`Index (1-${total}): `)) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= total) { err("MAIN", "Index invalid"); process.exit(1); }
     targets = [idx];
   } else if (mode === "2") {
     targets = Array.from({ length: total }, (_, i) => i);
   } else if (mode === "3") {
-    const from = parseInt(await prompt(`Mulai dari index (1-${total}): `)) - 1;
-    if (isNaN(from) || from < 0 || from >= total) {
-      err("MAIN", "Index invalid"); process.exit(1);
-    }
+    const from = parseInt(await prompt(`Dari index (1-${total}): `)) - 1;
+    if (isNaN(from) || from < 0 || from >= total) { err("MAIN", "Index invalid"); process.exit(1); }
     targets = Array.from({ length: total - from }, (_, i) => i + from);
   } else {
     err("MAIN", "Pilihan invalid"); process.exit(1);
   }
 
-  console.log(`\n\x1b[36mProcessing ${targets.length} account(s)...\x1b[0m\n`);
+  console.log(`\n\x1b[36mProcessing ${targets.length} akun...\x1b[0m\n`);
 
   const results = [];
   for (const idx of targets) {
     console.log(`\x1b[90m${"─".repeat(50)}\x1b[0m`);
-    const result = await processAccount(accounts[idx], wallets[idx], idx);
-    results.push(result);
+    results.push(await processAccount(accounts[idx], wallets[idx], idx));
     if (targets.length > 1) await sleep(3000);
   }
 
-  // summary
-  console.log(`\n\x1b[35m${"═".repeat(50)}\x1b[0m`);
-  console.log("\x1b[35m SUMMARY \x1b[0m");
-  const success = results.filter((r) => r.status === "success").length;
-  const already = results.filter((r) => r.status === "already_registered").length;
-  const failed = results.filter((r) => r.status.startsWith("failed")).length;
-  ok("DONE", `Success: ${success}`);
-  warn("DONE", `Already registered: ${already}`);
-  err("DONE", `Failed: ${failed}`);
+  console.log(`\n\x1b[35m${"═".repeat(50)}\x1b[0m SUMMARY`);
+  ok("DONE",  `Success          : ${results.filter((r) => r.status === "success").length}`);
+  warn("DONE", `Already reg      : ${results.filter((r) => r.status === "already_registered").length}`);
+  err("DONE",  `Failed           : ${results.filter((r) => r.status.startsWith("failed")).length}`);
 
-  // save log
   fs.writeFileSync("aka_result.json", JSON.stringify(results, null, 2));
-  info("DONE", "Results saved to aka_result.json");
+  info("DONE", "Saved → aka_result.json");
 }
 
 main().catch((e) => { err("FATAL", e.message); process.exit(1); });
