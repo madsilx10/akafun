@@ -124,13 +124,13 @@ async function checkRetweeted(authToken, ct0) {
 }
 
 async function retweet(authToken, ct0) {
-  const body = `id=${TWEET_ID}`;
+  const body = JSON.stringify({ variables: { tweet_id: TWEET_ID }, queryId: "ojPdsZsimiJrUGLR1sjUtA" });
   const res = await request({
     hostname: BASE_X_API,
-    path: `/1.1/statuses/retweet/${TWEET_ID}.json`,
+    path: "/graphql/ojPdsZsimiJrUGLR1sjUtA/CreateRetweet",
     method: "POST",
     headers: xHeaders(authToken, ct0, {
-      "content-type": "application/x-www-form-urlencoded",
+      "content-type": "application/json",
       "content-length": Buffer.byteLength(body),
     }),
   }, body);
