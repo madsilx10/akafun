@@ -170,6 +170,7 @@ async function getXToken(authToken, ct0, walletAddress) {
 
   // auth_code ada di HTML — cari di berbagai pattern
   const html = typeof getRes.body === "string" ? getRes.body : JSON.stringify(getRes.body);
+  info("OAUTH", `GET authorize status: ${getRes.status}, location: ${getRes.headers?.location || "-"}`);
   fs.writeFileSync("debug_html.txt", html.slice(0, 5000));
   const authCode =
     (html.match(/"auth_code"\s*:\s*"([^"]+)"/) ||
