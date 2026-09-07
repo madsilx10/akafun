@@ -145,6 +145,7 @@ async function getXToken(authToken, ct0, walletAddress) {
   });
 
   info("OAUTH", `Start status: ${startRes.status}, location: ${startRes.headers?.location || JSON.stringify(startRes.body).slice(0,100)}`);
+  const xAuthUrl = startRes.headers?.location;
   if (!xAuthUrl || !xAuthUrl.includes("oauth2/authorize")) {
     err("OAUTH", `No redirect. Body: ${JSON.stringify(startRes.body)}`);
     return null;
@@ -152,10 +153,8 @@ async function getXToken(authToken, ct0, walletAddress) {
 
   const urlObj   = new URL(xAuthUrl);
   const state    = urlObj.searchParams.get("state");
-  const clientId = urlObj.searchParams.get("client_id");
 
-  // Step 2: GET authorize page → dapat auth_code dari response JSON
-  // Step 2: GET authorize page → extract auth_code dari HTML
+  // Step 2: GET authorize page → Twitter minta login/approve
   const getRes = await request({
     hostname: "x.com",
     path: `/i/oauth2/authorize?${urlObj.searchParams.toString()}`,
@@ -168,9 +167,8 @@ async function getXToken(authToken, ct0, walletAddress) {
     }),
   });
 
-  // auth_code ada di HTML — cari di berbagai pattern
   const html = typeof getRes.body === "string" ? getRes.body : JSON.stringify(getRes.body);
-  info("OAUTH", `GET authorize: status=${getRes.status} body_len=${JSON.stringify(getRes.body).length} location=${getRes.headers?.location || "-"}`);
+  info("OAUTH", `GET authorize: status=${getRes.status} body_len=${html.length} location=${getRes.headers?.location || "-"}`);
   fs.writeFileSync("debug_html.txt", html.slice(0, 5000));
   const authCode =
     (html.match(/"auth_code"\s*:\s*"([^"]+)"/) ||
