@@ -164,45 +164,32 @@ async function getXToken(authToken, ct0, walletAddress) {
   const urlObj   = new URL(xAuthUrl);
   const state    = urlObj.searchParams.get("state");
 
-  // Step 2: GET authorize ke x.com — harus berhasil untuk dapat auth_code
+  // Step 2: GET authorize via Twitter internal API → return JSON dengan auth_code
   const getRes = await request({
     hostname: "x.com",
-    path: `/i/oauth2/authorize?${urlObj.searchParams.toString()}`,
+    path: `/i/api/2/oauth2/authorize?${urlObj.searchParams.toString()}`,
     method: "GET",
     headers: {
-      accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-      "accept-encoding": "gzip, deflate, br, zstd",
-      "accept-language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-      "cache-control": "max-age=0",
-      cookie: `auth_token=${authToken}; ct0=${ct0}`,
-      "sec-ch-ua": '"Mises";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
-      "sec-ch-ua-mobile": "?1",
-      "sec-ch-ua-platform": '"Android"',
-      "sec-fetch-dest": "document",
-      "sec-fetch-mode": "navigate",
-      "sec-fetch-site": "cross-site",
-      "sec-fetch-user": "?1",
-      "upgrade-insecure-requests": "1",
-      "user-agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      ...xHeaders(authToken, ct0),
+      accept: "application/json",
+      "x-csrf-token": ct0,
+      "sec-fetch-dest": "empty",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-site": "same-origin",
     },
   });
 
-  info("OAUTH", `GET authorize: status=${getRes.status} body_len=${typeof getRes.body === "string" ? getRes.body.length : JSON.stringify(getRes.body).length}`);
+  info("OAUTH", `GET authorize API: status=${getRes.status} body=${JSON.stringify(getRes.body).slice(0,300)}`);
 
-  const html = typeof getRes.body === "string" ? getRes.body : JSON.stringify(getRes.body);
-  const authCode =
-    (html.match(/"auth_code"\s*:\s*"([^"]+)"/) ||
-     html.match(/auth_code=([^&"'\s]+)/) ||
-     html.match(/name="code"\s+value="([^"]+)"/) ||
-     html.match(/"code"\s*:\s*"([^"]+)"/))?.[1];
+  // auth_code ada di response JSON
+  const authCode = getRes.body?.auth_code;
 
   if (!authCode) {
-    fs.writeFileSync("debug_html.txt", html);
-    err("OAUTH", `No auth_code. Status: ${getRes.status}, Snippet: ${html.slice(0, 500)}`);
+    err("OAUTH", `No auth_code. Body: ${JSON.stringify(getRes.body).slice(0, 400)}`);
     return null;
   }
 
-  info("OAUTH", `auth_code: ${authCode.slice(0, 20)}...`);
+  info("OAUTH", `auth_code OK: ${authCode.slice(0, 20)}...`);
 
   // Step 3: POST approve dengan auth_code
   const approveBody = new URLSearchParams({
