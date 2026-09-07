@@ -154,22 +154,26 @@ async function getXToken(authToken, ct0, walletAddress) {
   const urlObj   = new URL(xAuthUrl);
   const state    = urlObj.searchParams.get("state");
 
-  // Step 2: GET authorize page → Twitter minta login/approve
+  // Step 2: GET authorize ke x.com dengan cookie yang bener
   const getRes = await request({
     hostname: "x.com",
     path: `/i/oauth2/authorize?${urlObj.searchParams.toString()}`,
     method: "GET",
-    headers: xHeaders(authToken, ct0, {
+    headers: {
+      ...xHeaders(authToken, ct0),
       accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "sec-fetch-dest": "document",
       "sec-fetch-mode": "navigate",
       "sec-fetch-site": "cross-site",
-    }),
+      "sec-fetch-user": "?1",
+      "upgrade-insecure-requests": "1",
+      cookie: `auth_token=${authToken}; ct0=${ct0}; twid=u%3D${ct0}`,
+    },
   });
 
+  info("OAUTH", `GET authorize: status=${getRes.status} body_len=${typeof getRes.body === "string" ? getRes.body.length : JSON.stringify(getRes.body).length}`);
+
   const html = typeof getRes.body === "string" ? getRes.body : JSON.stringify(getRes.body);
-  info("OAUTH", `GET authorize: status=${getRes.status} body_len=${html.length} location=${getRes.headers?.location || "-"}`);
-  fs.writeFileSync("debug_html.txt", html.slice(0, 5000));
   const authCode =
     (html.match(/"auth_code"\s*:\s*"([^"]+)"/) ||
      html.match(/auth_code=([^&"'\s]+)/) ||
@@ -177,7 +181,7 @@ async function getXToken(authToken, ct0, walletAddress) {
      html.match(/"code"\s*:\s*"([^"]+)"/))?.[1];
 
   if (!authCode) {
-    err("OAUTH", `No auth_code. HTML snippet: ${html.slice(0, 300)}`);
+    err("OAUTH", `No auth_code. Status: ${getRes.status}, Snippet: ${html.slice(0, 400)}`);
     return null;
   }
 
@@ -198,6 +202,7 @@ async function getXToken(authToken, ct0, walletAddress) {
     }),
   }, approveBody);
 
+  info("OAUTH", `POST approve: status=${approveRes.status} body=${JSON.stringify(approveRes.body).slice(0,200)}`);
   const redirectUri = approveRes.body?.redirect_uri;
   if (!redirectUri) {
     err("OAUTH", `No redirect_uri. Body: ${JSON.stringify(approveRes.body)}`);
